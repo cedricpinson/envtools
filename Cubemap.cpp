@@ -102,10 +102,10 @@ void Cubemap::fill( const Vec4f& fillValue )
 
 // See Peter-Pike Sloan paper for these coefficients
 static double SHBandFactor[NUM_SH_COEFFICIENT] = { 1.0,
-                                                    2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0,
-                                                    1.0 / 4.0, 1.0 / 4.0, 1.0 / 4.0, 1.0 / 4.0, 1.0 / 4.0,
-                                                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // The 4 band will be zeroed
-                                                    - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0};
+                                                   2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0,
+                                                   1.0 / 4.0, 1.0 / 4.0, 1.0 / 4.0, 1.0 / 4.0, 1.0 / 4.0,
+                                                   0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // The 4 band will be zeroed
+                                                   - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0, - 1.0 / 24.0};
 
 void EvalSHBasis(const float* dir, double* res )
 {
@@ -165,11 +165,11 @@ void Cubemap::getSample(const Vec3f& direction, Vec3f& color ) const
 }
 
 /** Original code from Ignacio Castaño
-* This formula is from Manne Öhrström's thesis.
-* Take two coordiantes in the range [-1, 1] that define a portion of a
-* cube face and return the area of the projection of that portion on the
-* surface of the sphere.
-**/
+ * This formula is from Manne Öhrström's thesis.
+ * Take two coordiantes in the range [-1, 1] that define a portion of a
+ * cube face and return the area of the projection of that portion on the
+ * surface of the sphere.
+ **/
 
 static float AreaElement( float x, float y )
 {
@@ -374,6 +374,9 @@ Cubemap* Cubemap::shFilterCubeMap(bool useSolidAngleWeighting, int fixup, int ou
     std::cout << " ]" << std::endl;
 
 
+    this->ExtractDominantLight(SHr, SHg, SHb, NUM_SH_COEFFICIENT);
+
+
     for (int iFaceIdx = 0; iFaceIdx < 6; iFaceIdx++)
     {
         for (int y = 0; y < dstSize; y++)
@@ -409,6 +412,80 @@ Cubemap* Cubemap::shFilterCubeMap(bool useSolidAngleWeighting, int fixup, int ou
         }
     }
     return dstCubemap;
+}
+
+//***************
+// One Dominant Light Extraction from
+// http://simonstechblog.blogspot.fr/2012/02/extracting-dominant-light-from.html#sh_extractDominantLight
+//
+// => LightDir = 0.3 * (-Le3, -Le1, Le2).norm + 0.59 * (-Le3_G, -Le1_G, Le2_G).norm + 0.11 * (-Le3_B, -Le1_B, Le2_B).norm
+//
+// "Optimal Linear" Direction: from "Local, Deformable Precomputed Radiance Transfer" http://www.ppsloan.org/publications/ldprt_final05.pdf
+//
+// Dir = (-Le3, -Le1, Le2)
+//
+// "A linear SH function is also circularly symmetric about an axis,
+// because the basis functions are linear polynomials in sx, sy, and sz.
+// That axis of symmetry for a linear SH vector f is given by normalizing
+// the 3D vector of its linear basis coefficients (−f11,−f1−1, f10).
+// We call this the optimal linear lobe for f . Higher order SH expansions
+// however can not be represented exactly as a finite sum of
+// rotated Legendre functions of the same order. Fortunately, error
+// approaches 0 rapidly as N increases."
+//
+// Generalization n Light in "stupid sh tricks" http://www.ppsloan.org/publications/StupidSH36.pdf :
+// "Extracting Conventional Lights from SH"
+//
+// http://amd-dev.wpengine.netdna-cdn.com/wordpress/media/2013/01/Chapter03-SBOT-March_of_The_Froblins.pdf Listing 10
+// for a sample code
+//
+void Cubemap::ExtractDominantLight(double SHr[], double SHg[],  double SHb[], const int numSHCoeff)
+{
+
+    // simon/Sloane basic equations
+    //LightDir = 0.3 * (-Le3, -Le1, Le2).norm + 0.59 * (-Le3_G, -Le1_G, Le2_G).norm + 0.11 * (-Le3_B, -Le1_B, Le2_B).norm
+    // then following froblins which optimised it into
+    //LightDir = (SHr[0].yzw * 0.3 + SHg[0].yzw * 0.59 + vSHb[0].yzw*0.11);
+    //LightDir = normalize(Vec3f(-LightDir.zx, LightDir.y) );
+
+    double LightDir[3];
+
+    double VecRedX, VecRedY, VecRedZ;
+    double VecGreenX, VecGreenY, VecGreenZ;
+    double VecBlueX,VecBlueY,VecBlueZ;
+
+    // we might iterate over band afterwards.
+    int idx =  0;
+    // for (int idx = 0; idx < numSHCoeff; i++)
+
+    // load into clarity
+    VecRedX =  SHr[ idx  ];
+    VecRedY =  SHr[ idx + 1 ];
+    VecRedZ =  SHr[ idx + 2 ];
+
+    VecGreenX = SHg[ idx ];
+    VecGreenY = SHg[ idx + 1];
+    VecGreenZ = SHg[ idx + 2];
+
+    VecBlueX = SHb[ idx ];
+    VecBlueY = SHb[ idx + 1 ];
+    VecBlueZ = SHb[ idx + 2 ];
+
+    // the Vec3(-LightDir.zx, LightDir.y) swizzle
+    LightDir[0] = - (VecRedZ * 0.3 + VecGreenZ * 0.59 + VecBlueZ*0.11);
+    LightDir[1] = - (VecRedX * 0.3 + VecGreenX * 0.59 + VecBlueX*0.11);
+    LightDir[2] =  (VecRedY * 0.3 + VecGreenY * 0.59 + VecBlueY*0.11);
+
+    // normalize it
+
+    const double k = 1.f / sqrt(LightDir[0] * LightDir[0] + LightDir[1] * LightDir[1] + LightDir[2] * LightDir[2]);
+    LightDir[0] *= k;
+    LightDir[1] *= k;
+    LightDir[2] *= k;
+
+    // sprout it
+    std::cout << "LightDir: [ " << LightDir[0]  << ", " << LightDir[1] << ", " << LightDir[3] << " ]" << std::endl;
+
 }
 
 
@@ -488,7 +565,7 @@ bool Cubemap::loadMipMap(const std::string& filenamePattern)
         str[strSize+1] = 0;
         std::string filename = std::string( str );
         if ( fileExist(filename) )
-             filenames.push_back( filename );
+            filenames.push_back( filename );
     }
 
     uint nbMipLevel = filenames.size();
