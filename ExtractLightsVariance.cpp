@@ -246,8 +246,8 @@ void createAndMergeLights(const std::vector<satRegion>& regions, std::vector<lig
     // sort light
     std::sort(lights.begin(), lights.end());
 
-    #define MERGE 1
-    #ifdef MERGE
+#define MERGE 1
+#ifdef MERGE
 
     uint mergedLights = mergeLights(lights, newLights, width, height);
     // sort By sum now (changed the sortCriteria during merge)
@@ -262,6 +262,54 @@ void createAndMergeLights(const std::vector<satRegion>& regions, std::vector<lig
 }
 
 
+// solid Angle
+double AreaElement( const double x, const double y )
+{
+    return atan2(x * y, sqrt(x * x + y * y + 1.0));
+}
+
+// a pixel to a solidAngle
+double texelAreaSolidAngle(const double aU, const double aV, const double aW, const double aH, const uint width, const uint height)
+{
+    // Shift from a demi texel, mean 1.0 / size  with U and V in [-1..1]
+    const double InvResolutionW = 1.0 / width;
+    const double InvResolutionH = 1.0 / height;
+
+    // transform from [0..res - 1] to [- (1 - 1 / res) .. (1 - 1 / res)]
+    // ( 0.5 is for texel center addressing)
+    const double x0 = (2.0 * (aU  + 0.5) / width ) - 1.0 - InvResolutionW;
+    const double y0 = (2.0 * (aV  + 0.5) / height ) - 1.0 + InvResolutionH;    
+    const double x1 = (2.0 * ((aU+aV)  + 0.5) / width ) - 1.0 + InvResolutionW;
+    const double y1 = (2.0 * ((aV+aH)  + 0.5) / height ) - 1.0 + InvResolutionH;    
+
+    const double SolidAngle = AreaElement(x0, y0) - AreaElement(x0, y1) - AreaElement(x1, y0) + AreaElement(x1, y1);
+
+    return SolidAngle;
+}
+
+// solid Angle: aka resolution independent results
+double texelPixelSolidAngle(const double aU, const double aV, const uint width, const uint height) 
+{
+    // transform from [0..res - 1] to [- (1 - 1 / res) .. (1 - 1 / res)]
+    // ( 0.5 is for texel center addressing)
+    const double U = (2.0 * (aU  + 0.5) / width ) - 1.0;
+    const double V = (2.0 * (aV  + 0.5) / height ) - 1.0;
+    
+    // Shift from a demi texel, mean 1.0 / size  with U and V in [-1..1]
+    const double InvResolutionW = 1.0 / width;
+    const double InvResolutionH = 1.0 / height;
+        
+    // U and V are the -1..1 texture coordinate on the current face.
+    // Get projected area for this Texel
+    const double x0 = U - InvResolutionW;
+    const double y0 = V - InvResolutionH;
+    const double x1 = U + InvResolutionW;
+    const double y1 = V + InvResolutionH;
+    const double SolidAngle = AreaElement(x0, y0) - AreaElement(x0, y1) - AreaElement(x1, y0)  + AreaElement(x1, y1);
+
+    return SolidAngle;
+}
+
 void outputJSON(const std::vector<light> &lights, uint height, uint width, uint imageAreaSize)
 {
     size_t i = 0;
@@ -270,6 +318,12 @@ void outputJSON(const std::vector<light> &lights, uint height, uint width, uint 
     std::cout << "[";
 
     for (std::vector<light>::const_iterator l = lights.begin(); l != lights.end() && i < lightNum; ++l) {
+
+        const double x = l->_centroidPosition._y / height;        
+        const double y = l->_centroidPosition._x / width;
+        
+            
+        const double solidAngle = texelPixelSolidAngle(l->_centroidPosition._x, l->_centroidPosition._y, width, height);
 
         // convert x,y to direction
         double3 d;
@@ -292,20 +346,26 @@ void outputJSON(const std::vector<light> &lights, uint height, uint width, uint 
             d._z *= inv;
         }
 
-        // convert to bitmap
-        const int rCol = static_cast<uchar>(static_cast<uchar>(l->_rAverage*255));
-        const int gCol = static_cast<uchar>(static_cast<uchar>(l->_gAverage*255));
-        const int bCol = static_cast<uchar>(static_cast<uchar>(l->_bAverage*255));
+        // convert to float
+        const float rCol = l->_rAverage;        
+        const float gCol = l->_gAverage;
+        const float bCol = l->_bAverage;
+
 
         // 1 JSON object per light
         std::cout << "{";
-        std::cout << " \"position\": [" << l->_centroidPosition._x << ", " << l->_centroidPosition._y << "] ,";
+        std::cout << " \"position\": [" << x << ", " << y << "] ,";
         std::cout << " \"direction\": [" << d._x << ", " << d._y << ", " << d._z << "], ";
-        std::cout << " \"luminosity\": " << l->_lumAverage << ", ";
+        std::cout << " \"luminosity\": " << (l->_lumAverage * solidAngle) << ", ";
         std::cout << " \"color\": [" << rCol << ", " << gCol << ", " << bCol << "], ";
-        std::cout << " \"size\": " << l->_areaSize/imageAreaSize << ", ";
-        std::cout << " \"area\": {\"x\":" << l->_x << ", \"y\":" << l->_y << ", \"w\":" << l->_w << ", \"h\":" << l->_h << "}, ";
-        std::cout << " \"variance\": " << l->_variance << " ";
+
+
+        std::cout << " \"area\": {\"x\":" << x << ", \"y\":" << y << ", \"w\":" << (l->_w/width) << ", \"h\":" << (l->_h/height) << "}, ";
+
+        const double solidAngleArea = texelAreaSolidAngle(l->_centroidPosition._x, l->_centroidPosition._y , l->_w, l->_h, width, height);
+        
+        std::cout << " \"variance\": " << (l->_sum * solidAngleArea) << " ";
+
         std::cout << " }" << std::endl;
 
         if (i < lightNum - 1){
