@@ -240,16 +240,15 @@ GET_SAMPLE_IMPLEMENTATION
 
 static float4 rotateLight( float rad, float4 l ) {
   float s,c,t;
+  float4 x0,x1,x2;
 
   s = sin(rad);
   c = cos(rad);
   t = 1.f - c;
-
   // Perform rotation-specific matrix multiplication
-  // float4 x0,x1,x2;
-  // x0[0] = c;   x0[1] = s;    x0[2] = 0;     x0[3] = 0;
-  // x1[0] = -s;  x1[1] = c;    x1[2] = 0;     x1[3] = 0;
-  // x2[0] = 0;   x2[1] = 0;    x2[2] = t + c; x2[3] = 0;
+  x0[0] = c;   x0[1] = s;    x0[2] = 0;     x0[3] = 0;
+  x1[0] = -s;  x1[1] = c;    x1[2] = 0;     x1[3] = 0;
+  x2[0] = 0;   x2[1] = 0;    x2[2] = t + c; x2[3] = 0;
 
   float4 L;
   L[0] =  l.s0 * c  +  l.s1 * s;
@@ -364,7 +363,7 @@ kernel void computeBackground( uint face,
         // get uv, face
         uv = vectToTexelCoord( LworldSpace );
 
-        color = read_imagef( cubemap0, cubemapSampler, uv );
+        finalColor += read_imagef( cubemap0, cubemapSampler, uv ) * L.s3;
 
         for ( uint rotation = 1; rotation < nbRotations; rotation++ ) {
 
@@ -372,11 +371,9 @@ kernel void computeBackground( uint face,
 
           LworldSpace = TangentX * L2.s0 + TangentY * L2.s1 + N * L2.s2;
           uv = vectToTexelCoord( LworldSpace );
-          color += read_imagef( cubemap0, cubemapSampler, uv );
+          finalColor += read_imagef( cubemap0, cubemapSampler, uv ) * L.s3;
 
         }
-
-        finalColor +=  color * L.s3;
 
     }
 
